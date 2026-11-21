@@ -1,0 +1,236 @@
+// Prisma schema for ProTest - Local Standalone SQLite development
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String    @id @default(uuid())
+  phone        String    @unique
+  email        String?   @unique
+  passwordHash String
+  fullName     String
+  role         String    @default("STUDENT") // ADMIN, TEACHER, STUDENT
+  isBlocked    Boolean   @default(false)
+  avatarUrl    String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  authoredQuestions Question[] @relation("QuestionAuthor")
+  createdTests      Test[]     @relation("TeacherTests")
+  managedGroups     Group[]    @relation("TeacherGroups")
+
+  enrolledGroups    GroupMember[]
+  testAttempts      TestAttempt[]
+  auditLogs         AuditLog[]
+}
+
+model OtpVerification {
+  id            String    @id @default(uuid())
+  phone         String    @unique
+  otpHash       String
+  expiresAt     DateTime
+  attemptsCount Int       @default(0)
+  lastSentAt    DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Group {
+  id          String        @id @default(uuid())
+  name        String
+  description String?
+  teacherId   String
+  teacher     User          @relation("TeacherGroups", fields: [teacherId], references: [id], onDelete: Cascade)
+  members     GroupMember[]
+  testAssignments TestGroupAssignment[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+model GroupMember {
+  id        String   @id @default(uuid())
+  groupId   String
+  group     Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  studentId String
+  student   User     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  joinedAt  DateTime @default(now())
+
+  @@unique([groupId, studentId])
+}
+
+model Topic {
+  id          String     @id @default(uuid())
+  name        String
+  description String?
+  parentId    String?
+  parent      Topic?     @relation("TopicHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children    Topic[]    @relation("TopicHierarchy")
+  orderIndex  Int        @default(0)
+  isArchived  Boolean    @default(false)
+  questions   Question[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model Question {
+  id                 String       @id @default(uuid())
+  topicId            String
+  topic              Topic        @relation(fields: [topicId], references: [id], onDelete: Restrict)
+  authorId           String
+  author             User         @relation("QuestionAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  
+  conditionText      String
+  conditionFormula   String?
+  conditionImageUrl  String?
+  
+  difficulty         String       @default("MEDIUM") // EASY, MEDIUM, HARD, OLYMPIAD
+  points             Float        @default(1.0)
+  
+  isSingleChoice     Boolean      @default(true)
+  isMultipleChoice   Boolean      @default(false)
+  isNumericAnswer    Boolean      @default(false)
+  isTextAnswer       Boolean      @default(false)
+  
+  correctNumeric     Float?
+  correctText        String?
+
+  explanationText    String?
+  explanationFormula String?
+  explanationImageUrl String?
+
+  isArchived         Boolean      @default(false)
+
+  options            Option[]
+  testQuestions      TestQuestion[]
+  studentAnswers     StudentAnswer[]
+
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+}
+
+model Option {
+  id           String   @id @default(uuid())
+  questionId   String
+  question     Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  text         String
+  formula      String?
+  imageUrl     String?
+  isCorrect    Boolean  @default(false)
+  orderIndex   Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Test {
+  id                    String                @id @default(uuid())
+  title                 String
+  description           String?
+  teacherId             String
+  teacher               User                  @relation("TeacherTests", fields: [teacherId], references: [id], onDelete: Cascade)
+  
+  durationMinutes       Int                   @default(45)
+  startsAt              DateTime?
+  endsAt                DateTime?
+  
+  shuffleQuestions      Boolean               @default(true)
+  shuffleOptions        Boolean               @default(true)
+  allowRetake           Boolean               @default(false)
+  maxAttempts           Int                   @default(1)
+  showResultsImmediately Boolean              @default(true)
+  showExplanations      Boolean               @default(false)
+  isArchived            Boolean               @default(false)
+
+  testQuestions         TestQuestion[]
+  assignedGroups        TestGroupAssignment[]
+  attempts              TestAttempt[]
+
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+}
+
+model TestQuestion {
+  id         String   @id @default(uuid())
+  testId     String
+  test       Test     @relation(fields: [testId], references: [id], onDelete: Cascade)
+  questionId String
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  orderIndex Int      @default(0)
+  points     Float    @default(1.0)
+
+  @@unique([testId, questionId])
+}
+
+model TestGroupAssignment {
+  id        String   @id @default(uuid())
+  testId    String
+  test      Test     @relation(fields: [testId], references: [id], onDelete: Cascade)
+  groupId   String
+  group     Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  assignedAt DateTime @default(now())
+
+  @@unique([testId, groupId])
+}
+
+model TestAttempt {
+  id                String         @id @default(uuid())
+  testId            String
+  test              Test           @relation(fields: [testId], references: [id], onDelete: Cascade)
+  studentId         String
+  student           User           @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  attemptNumber     Int            @default(1)
+  
+  startedAt         DateTime       @default(now())
+  submittedAt       DateTime?
+  expiresAt         DateTime
+  status            String         @default("IN_PROGRESS") // IN_PROGRESS, COMPLETED, TIMED_OUT
+
+  shuffledSnapshot  String
+
+  totalQuestions    Int            @default(0)
+  correctAnswers    Int            @default(0)
+  incorrectAnswers  Int            @default(0)
+  skippedAnswers    Int            @default(0)
+  score             Float          @default(0.0)
+  maxScore          Float          @default(0.0)
+  percentage        Float          @default(0.0)
+  durationSeconds   Int            @default(0)
+
+  answers           StudentAnswer[]
+
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+}
+
+model StudentAnswer {
+  id                String       @id @default(uuid())
+  attemptId         String
+  attempt           TestAttempt  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  questionId        String
+  question          Question     @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  
+  selectedOptionIds String?
+  numericAnswer     Float?
+  textAnswer        String?
+  
+  isCorrect         Boolean      @default(false)
+  pointsAwarded     Float        @default(0.0)
+  answeredAt        DateTime     @default(now())
+
+  @@unique([attemptId, questionId])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  details   String?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+}
